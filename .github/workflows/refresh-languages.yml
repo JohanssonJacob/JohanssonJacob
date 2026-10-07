@@ -1,0 +1,50 @@
+name: Refresh profile statistics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: profile-statistics
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Generate aggregate public and private language cards
+        env:
+          GH_TOKEN: ${{ secrets.PROFILE_STATS_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "Add PROFILE_STATS_TOKEN with read-only Metadata and Contents access to the repositories you want included."
+            exit 1
+          fi
+          node scripts/update-languages.cjs
+      - name: Generate public and private commits badge
+        env:
+          GH_TOKEN: ${{ secrets.PROFILE_STATS_TOKEN }}
+        run: node scripts/update-commits.cjs
+      - name: Commit updated profile statistics
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin "$GITHUB_REF_NAME"
+          git reset -q "origin/$GITHUB_REF_NAME"
+          git add assets/languages-dark.svg assets/languages-light.svg assets/badge-commits.svg
+          if git diff --cached --quiet; then
+            echo 'Profile statistics are already up to date.'
+            exit 0
+          fi
+          git commit -m 'Refresh aggregate profile statistics'
+          git push origin "HEAD:$GITHUB_REF_NAME"
